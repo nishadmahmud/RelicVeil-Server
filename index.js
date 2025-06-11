@@ -23,6 +23,21 @@ async function run() {
     const db = client.db("artifactsDB");
     const artifactsCollection = db.collection("artifacts");
 
+    // GET: Get top liked artifacts (MUST be before other artifact routes)
+    app.get("/api/artifacts/top-liked", async (req, res) => {
+      try {
+        const result = await artifactsCollection.aggregate([
+          { $sort: { likeCount: -1 } },
+          { $limit: 6 }
+        ]).toArray();
+        
+        return res.json(result);
+      } catch (error) {
+        console.error('Error in top-liked:', error);
+        return res.status(500).json({ message: 'Server error' });
+      }
+    });
+
     // POST: Add a new artifact
     app.post("/api/artifacts", async (req, res) => {
       try {
@@ -60,46 +75,37 @@ async function run() {
       }
     });
 
-    // GET: Get artifacts by user email
-    app.get("/api/artifacts/user/:email", async (req, res) => {
-      try {
-        const email = req.params.email;
-        const artifacts = await artifactsCollection
-          .find({
-            adderEmail: email,
-          })
-          .toArray();
-        res.json(artifacts);
-      } catch (error) {
-        console.error("Error fetching user artifacts:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch user artifacts",
-        });
-      }
-    });
-
     // GET: Get single artifact by ID
     app.get("/api/artifacts/:id", async (req, res) => {
       try {
         const id = req.params.id;
+
+        // Validate if the id is a valid ObjectId
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid artifact ID format"
+          });
+        }
+
         const artifact = await artifactsCollection.findOne({
-          _id: new ObjectId(id),
+          _id: new ObjectId(id)
         });
 
         if (!artifact) {
           return res.status(404).json({
             success: false,
-            message: "Artifact not found",
+            message: "Artifact not found"
           });
         }
 
-        res.json(artifact);
+        res.status(200).json(artifact);
       } catch (error) {
         console.error("Error fetching artifact:", error);
         res.status(500).json({
           success: false,
           message: "Failed to fetch artifact",
+          error: error.message
         });
       }
     });
@@ -219,33 +225,7 @@ async function run() {
       }
     });
 
-    // DELETE: Delete an artifact
-    app.delete("/api/artifacts/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const result = await artifactsCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
 
-        if (result.deletedCount === 0) {
-          return res.status(404).json({
-            success: false,
-            message: "Artifact not found",
-          });
-        }
-
-        res.json({
-          success: true,
-          message: "Artifact deleted successfully",
-        });
-      } catch (error) {
-        console.error("Error deleting artifact:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to delete artifact",
-        });
-      }
-    });
 
     app.get("/", (req, res) => {
       res.send("Artifacts Server is running!");
