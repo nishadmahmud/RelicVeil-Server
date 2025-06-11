@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 require('dotenv').config();
 
 const app = express();
@@ -20,14 +20,37 @@ async function run() {
     await client.connect();
     console.log("Connected to MongoDB");
 
-    const db = client.db("testDB");
-    const collection = db.collection("testCollection");
+    const db = client.db("artifactsDB");
+    const artifactsCollection = db.collection("artifacts");
 
-    app.get("/", (req, res) => {
-      res.send("Server is running!");
+    // POST: Add a new artifact
+    app.post("/api/artifacts", async (req, res) => {
+      try {
+        const artifact = req.body;
+        // Add likeCount and timestamp
+        artifact.likeCount = 0;
+        artifact.addedDate = new Date();
+
+        const result = await artifactsCollection.insertOne(artifact);
+        res.status(201).json({
+          success: true,
+          message: "Artifact added successfully",
+          insertedId: result.insertedId
+        });
+      } catch (error) {
+        console.error("Error adding artifact:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to add artifact"
+        });
+      }
     });
 
-    // You can add more routes here...
+    
+
+    app.get("/", (req, res) => {
+      res.send("Artifacts Server is running!");
+    });
 
   } catch (err) {
     console.error(err);
