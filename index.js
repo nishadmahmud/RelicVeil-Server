@@ -1,7 +1,7 @@
-const express = require('express');
-const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const { MongoClient, ObjectId } = require("mongodb");
+require("dotenv").config();
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -35,23 +35,34 @@ async function run() {
         res.status(201).json({
           success: true,
           message: "Artifact added successfully",
-          insertedId: result.insertedId
+          insertedId: result.insertedId,
         });
       } catch (error) {
         console.error("Error adding artifact:", error);
         res.status(500).json({
           success: false,
-          message: "Failed to add artifact"
+          message: "Failed to add artifact",
         });
       }
     });
 
-    
+    // GET: Get all artifacts
+    app.get("/api/artifacts", async (req, res) => {
+      try {
+        const artifacts = await artifactsCollection.find().toArray();
+        res.json(artifacts);
+      } catch (error) {
+        console.error("Error fetching artifacts:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch artifacts",
+        });
+      }
+    });
 
     app.get("/", (req, res) => {
       res.send("Artifacts Server is running!");
     });
-
   } catch (err) {
     console.error(err);
   }
