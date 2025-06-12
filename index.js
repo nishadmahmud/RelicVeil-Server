@@ -2,12 +2,123 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 require("dotenv").config();
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-admin.json");
 
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Initialize Firebase Admin with service account from JSON file
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+// Custom error handler middleware
+const errorHandler = (err, req, res, next) => {
+  console.error('Error:', err);
+  
+  if (err.name === 'UnauthorizedError' || err.code === 'auth/id-token-expired') {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid or expired token' 
+    });
+  }
+  
+  if (err.code === 'auth/insufficient-permission') {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Insufficient permissions' 
+    });
+  }
+  
+  res.status(500).json({ 
+    success: false, 
+    message: 'Internal server error' 
+  });
+};
+
+// Verify Firebase Token Middleware
+const verifyToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers?.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Unauthorized access" 
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      req.user = decodedToken;
+      next();
+    } catch (error) {
+      if (error.code === 'auth/id-token-expired') {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Token expired' 
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Verify User Ownership Middleware
+const verifyOwnership = async (req, res, next) => {
+  try {
+    const userEmail = req.user.email;
+    const artifact = await artifactsCollection.findOne({ 
+      _id: new ObjectId(req.params.id) 
+    });
+    
+    if (!artifact) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Artifact not found' 
+      });
+    }
+    
+    if (artifact.adderEmail !== userEmail) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You do not have permission to modify this artifact' 
+      });
+    }
+    
+    req.artifact = artifact;
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
 app.use(cors());
 app.use(express.json());
+
+// Apply error handler
+app.use(errorHandler);
+
+// Test authentication endpoint
+app.get("/api/test-auth", verifyToken, async (req, res) => {
+  try {
+    // Return user info from the verified token
+    res.json({
+      message: "Authentication successful",
+      user: {
+        email: req.user.email,
+        uid: req.user.uid,
+        emailVerified: req.user.email_verified
+      }
+    });
+  } catch (error) {
+    console.error("Test auth error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@ph-cluster.8kwdmtt.mongodb.net/?retryWrites=true&w=majority&appName=PH-Cluster`;
 const client = new MongoClient(uri, {
@@ -38,13 +149,14 @@ async function run() {
       }
     });
 
-    // POST: Add a new artifact
-    app.post("/api/artifacts", async (req, res) => {
+    // POST: Add a new artifact (Protected)
+    app.post("/api/artifacts", verifyToken, async (req, res) => {
       try {
         const artifact = req.body;
-        // Add likeCount and timestamp
+        // Add likeCount, timestamp and verified user info
         artifact.likeCount = 0;
         artifact.addedDate = new Date();
+        artifact.adderEmail = req.user.email; // From verified token
 
         const result = await artifactsCollection.insertOne(artifact);
         res.status(201).json({
@@ -80,7 +192,6 @@ async function run() {
       try {
         const id = req.params.id;
 
-        // Validate if the id is a valid ObjectId
         if (!ObjectId.isValid(id)) {
           return res.status(400).json({
             success: false,
@@ -110,24 +221,17 @@ async function run() {
       }
     });
 
-    // PATCH: Update like count
-    app.patch("/api/artifacts/:id/like", async (req, res) => {
+    // PATCH: Update like count (Protected)
+    app.patch("/api/artifacts/:id/like", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        const { userEmail } = req.body;
-
-        if (!userEmail) {
-          return res.status(400).json({
-            success: false,
-            message: "User email is required",
-          });
-        }
+        const userEmail = req.user.email; // From verified token
 
         const result = await artifactsCollection.updateOne(
           { _id: new ObjectId(id) },
           {
             $inc: { likeCount: 1 },
-            $addToSet: { likedBy: userEmail }, // Add user to likedBy array if not already present
+            $addToSet: { likedBy: userEmail },
           }
         );
 
@@ -151,18 +255,11 @@ async function run() {
       }
     });
 
-    // PATCH: Update dislike (decrease like count)
-    app.patch("/api/artifacts/:id/dislike", async (req, res) => {
+    // PATCH: Update dislike (Protected)
+    app.patch("/api/artifacts/:id/dislike", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        const { userEmail } = req.body;
-
-        if (!userEmail) {
-          return res.status(400).json({
-            success: false,
-            message: "User email is required",
-          });
-        }
+        const userEmail = req.user.email; // From verified token
 
         // First get the current like count and check if user has liked
         const artifact = await artifactsCollection.findOne({
@@ -182,7 +279,7 @@ async function run() {
             { _id: new ObjectId(id) },
             {
               $inc: { likeCount: -1 },
-              $pull: { likedBy: userEmail }, // Remove user from likedBy array
+              $pull: { likedBy: userEmail },
             }
           );
 
@@ -207,10 +304,10 @@ async function run() {
       }
     });
 
-    // GET: Get user's liked artifacts
-    app.get("/api/artifacts/liked/:userEmail", async (req, res) => {
+    // GET: Get user's liked artifacts (Protected)
+    app.get("/api/artifacts/liked/:userEmail", verifyToken, async (req, res) => {
       try {
-        const userEmail = req.params.userEmail;
+        const userEmail = req.user.email; // From verified token
         const likedArtifacts = await artifactsCollection
           .find({ likedBy: userEmail })
           .toArray();
@@ -225,18 +322,11 @@ async function run() {
       }
     });
 
-    // GET: Get artifacts by user email
-    app.get("/api/artifacts/user/:email", async (req, res) => {
+    // GET: Get artifacts by user email (Protected)
+    app.get("/api/artifacts/user/:email", verifyToken, async (req, res) => {
       try {
-        const email = req.params.email;
+        const email = req.user.email; // From verified token
         
-        if (!email) {
-          return res.status(400).json({
-            success: false,
-            message: "Email parameter is required"
-          });
-        }
-
         const artifacts = await artifactsCollection
           .find({ adderEmail: email })
           .toArray();
@@ -253,11 +343,25 @@ async function run() {
       }
     });
 
-    // PATCH: Update an artifact
-    app.patch("/api/artifacts/:id", async (req, res) => {
+    // PATCH: Update an artifact (Protected)
+    app.patch("/api/artifacts/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
         const updates = req.body;
+        const userEmail = req.user.email; // From verified token
+
+        // First check if the user owns this artifact
+        const artifact = await artifactsCollection.findOne({
+          _id: new ObjectId(id),
+          adderEmail: userEmail
+        });
+
+        if (!artifact) {
+          return res.status(403).json({
+            success: false,
+            message: "You don't have permission to update this artifact"
+          });
+        }
 
         // Remove any fields that shouldn't be updated
         delete updates.likeCount;
@@ -290,15 +394,22 @@ async function run() {
       }
     });
 
-    // DELETE: Delete an artifact
-    app.delete("/api/artifacts/:id", async (req, res) => {
+    // DELETE: Delete an artifact (Protected)
+    app.delete("/api/artifacts/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
+        const userEmail = req.user.email; // From verified token
 
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).json({
+        // First check if the user owns this artifact
+        const artifact = await artifactsCollection.findOne({
+          _id: new ObjectId(id),
+          adderEmail: userEmail
+        });
+
+        if (!artifact) {
+          return res.status(403).json({
             success: false,
-            message: "Invalid artifact ID format"
+            message: "You don't have permission to delete this artifact"
           });
         }
 
