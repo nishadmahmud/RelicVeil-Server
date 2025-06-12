@@ -225,7 +225,106 @@ async function run() {
       }
     });
 
+    // GET: Get artifacts by user email
+    app.get("/api/artifacts/user/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        
+        if (!email) {
+          return res.status(400).json({
+            success: false,
+            message: "Email parameter is required"
+          });
+        }
 
+        const artifacts = await artifactsCollection
+          .find({ adderEmail: email })
+          .toArray();
+
+        console.log(`Found ${artifacts.length} artifacts for user ${email}`);
+        
+        return res.status(200).json(artifacts);
+      } catch (error) {
+        console.error("Error fetching user artifacts:", error);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to fetch user artifacts"
+        });
+      }
+    });
+
+    // PATCH: Update an artifact
+    app.patch("/api/artifacts/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updates = req.body;
+
+        // Remove any fields that shouldn't be updated
+        delete updates.likeCount;
+        delete updates.likedBy;
+        delete updates.adderName;
+        delete updates.adderEmail;
+
+        const result = await artifactsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "Artifact not found"
+          });
+        }
+
+        res.json({
+          success: true,
+          message: "Artifact updated successfully"
+        });
+      } catch (error) {
+        console.error("Error updating artifact:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to update artifact"
+        });
+      }
+    });
+
+    // DELETE: Delete an artifact
+    app.delete("/api/artifacts/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid artifact ID format"
+          });
+        }
+
+        const result = await artifactsCollection.deleteOne({
+          _id: new ObjectId(id)
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "Artifact not found"
+          });
+        }
+
+        res.json({
+          success: true,
+          message: "Artifact deleted successfully"
+        });
+      } catch (error) {
+        console.error("Error deleting artifact:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to delete artifact"
+        });
+      }
+    });
 
     app.get("/", (req, res) => {
       res.send("Artifacts Server is running!");
