@@ -2,16 +2,21 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 require("dotenv").config();
-const admin = require("firebase-admin");
-const serviceAccount = require("./firebase-admin.json");
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Initialize Firebase Admin with service account from JSON file
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+// Initialize Firebase Admin
+if (process.env.NODE_ENV === 'production') {
+  // Production environment (Vercel)
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    }),
+  });
+} 
 
 // Custom error handler middleware
 const errorHandler = (err, req, res, next) => {
