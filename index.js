@@ -134,6 +134,68 @@ async function run() {
     const db = client.db("artifactsDB");
     const artifactsCollection = db.collection("artifacts");
 
+    // Drop existing text index if it exists and create a new one
+    try {
+        await artifactsCollection.dropIndex("name_text_description_text_type_text_presentLocation_text");
+    } catch (error) {
+        console.log("No existing text index to drop");
+    }
+
+    // Create text index for search functionality
+    await artifactsCollection.createIndex(
+        { 
+            name: "text", 
+            description: "text", 
+            type: "text", 
+            presentLocation: "text" 
+        },
+        { 
+            weights: {
+                name: 10,
+                type: 5,
+                presentLocation: 5,
+                description: 1
+            },
+            name: "artifact_search_index"
+        }
+    );
+
+    // GET: Search artifacts
+    app.get("/api/artifacts/search", async (req, res) => {
+        try {
+            const searchQuery = req.query.q;
+            console.log("Search query received:", searchQuery);
+            
+            if (!searchQuery || searchQuery.trim() === '') {
+                return res.json([]);
+            }
+
+            // Create a regex pattern for case-insensitive search
+            const searchRegex = new RegExp(searchQuery, 'i');
+
+            // Use $or to search across multiple fields
+            const result = await artifactsCollection.find({
+                $or: [
+                    { name: searchRegex },
+                    { description: searchRegex },
+                    { type: searchRegex },
+                    { presentLocation: searchRegex }
+                ]
+            }).toArray();
+
+            console.log(`Found ${result.length} results for query: ${searchQuery}`);
+            
+            res.json(result);
+        } catch (error) {
+            console.error("Error searching artifacts:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to search artifacts",
+                error: error.message
+            });
+        }
+    });
+
     // GET: Get top liked artifacts (MUST be before other artifact routes)
     app.get("/api/artifacts/top-liked", async (req, res) => {
       try {
