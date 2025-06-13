@@ -8,21 +8,28 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Initialize Firebase Admin
-if (process.env.NODE_ENV === 'production') {
-  // Production environment (Vercel)
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    }),
-  });
-} else {
-  // Development environment
+try {
+  // Try to use the service account JSON file
   const serviceAccount = require('./firebase-admin.json');
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
+} catch (error) {
+  console.error('Error initializing Firebase Admin:', error);
+  // If the JSON file is not available, try to use environment variables as fallback
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+    } catch (parseError) {
+      console.error('Error parsing service account from environment:', parseError);
+      throw new Error('Failed to initialize Firebase Admin SDK');
+    }
+  } else {
+    throw new Error('No Firebase credentials available');
+  }
 }
 
 // Custom error handler middleware
