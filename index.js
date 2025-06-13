@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 require("dotenv").config();
+const admin = require("firebase-admin");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -16,7 +17,13 @@ if (process.env.NODE_ENV === 'production') {
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     }),
   });
-} 
+} else {
+  // Development environment
+  const serviceAccount = require('./firebase-admin.json');
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
 
 // Custom error handler middleware
 const errorHandler = (err, req, res, next) => {
