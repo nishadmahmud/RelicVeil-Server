@@ -7,16 +7,13 @@ const admin = require("firebase-admin");
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Initialize Firebase Admin
 try {
-  // Try to use the service account JSON file
   const serviceAccount = require('./firebase-admin.json');
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
 } catch (error) {
   console.error('Error initializing Firebase Admin:', error);
-  // If the JSON file is not available, try to use environment variables as fallback
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     try {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -32,7 +29,6 @@ try {
   }
 }
 
-// Custom error handler middleware
 const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
   
@@ -56,7 +52,6 @@ const errorHandler = (err, req, res, next) => {
   });
 };
 
-// Verify Firebase Token Middleware
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers?.authorization;
@@ -86,7 +81,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// Verify User Ownership Middleware
 const verifyOwnership = async (req, res, next) => {
   try {
     const userEmail = req.user.email;
@@ -118,13 +112,10 @@ const verifyOwnership = async (req, res, next) => {
 app.use(cors());
 app.use(express.json());
 
-// Apply error handler
 app.use(errorHandler);
 
-// Test authentication endpoint
 app.get("/api/test-auth", verifyToken, async (req, res) => {
   try {
-    // Return user info from the verified token
     res.json({
       message: "Authentication successful",
       user: {
@@ -147,20 +138,17 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // await client.connect();
     console.log("Connected to MongoDB");
 
     const db = client.db("artifactsDB");
     const artifactsCollection = db.collection("artifacts");
 
-    // Drop existing text index if it exists and create a new one
     try {
         await artifactsCollection.dropIndex("name_text_description_text_type_text_presentLocation_text");
     } catch (error) {
         console.log("No existing text index to drop");
     }
 
-    // Create text index for search functionality
     await artifactsCollection.createIndex(
         { 
             name: "text", 
@@ -179,7 +167,6 @@ async function run() {
         }
     );
 
-    // GET: Search artifacts
     app.get("/api/artifacts/search", async (req, res) => {
         try {
             const searchQuery = req.query.q;
@@ -189,10 +176,8 @@ async function run() {
                 return res.json([]);
             }
 
-            // Create a regex pattern for case-insensitive search
             const searchRegex = new RegExp(searchQuery, 'i');
 
-            // Use $or to search across multiple fields
             const result = await artifactsCollection.find({
                 $or: [
                     { name: searchRegex },
@@ -215,7 +200,6 @@ async function run() {
         }
     });
 
-    // GET: Get top liked artifacts (MUST be before other artifact routes)
     app.get("/api/artifacts/top-liked", async (req, res) => {
       try {
         const result = await artifactsCollection.aggregate([
@@ -230,14 +214,12 @@ async function run() {
       }
     });
 
-    // POST: Add a new artifact (Protected)
     app.post("/api/artifacts", verifyToken, async (req, res) => {
       try {
         const artifact = req.body;
-        // Add likeCount, timestamp and verified user info
         artifact.likeCount = 0;
         artifact.addedDate = new Date();
-        artifact.adderEmail = req.user.email; // From verified token
+        artifact.adderEmail = req.user.email;
 
         const result = await artifactsCollection.insertOne(artifact);
         res.status(201).json({
@@ -254,7 +236,6 @@ async function run() {
       }
     });
 
-    // GET: Get all artifacts
     app.get("/api/artifacts", async (req, res) => {
       try {
         const artifacts = await artifactsCollection.find().toArray();
@@ -268,7 +249,6 @@ async function run() {
       }
     });
 
-    // GET: Get single artifact by ID
     app.get("/api/artifacts/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -302,11 +282,10 @@ async function run() {
       }
     });
 
-    // PATCH: Update like count (Protected)
     app.patch("/api/artifacts/:id/like", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        const userEmail = req.user.email; // From verified token
+        const userEmail = req.user.email;
 
         const result = await artifactsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -336,13 +315,11 @@ async function run() {
       }
     });
 
-    // PATCH: Update dislike (Protected)
     app.patch("/api/artifacts/:id/dislike", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        const userEmail = req.user.email; // From verified token
+        const userEmail = req.user.email;
 
-        // First get the current like count and check if user has liked
         const artifact = await artifactsCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -354,7 +331,6 @@ async function run() {
           });
         }
 
-        // Only decrease if like count is greater than 0 and user has liked
         if (artifact.likeCount > 0 && artifact.likedBy?.includes(userEmail)) {
           const result = await artifactsCollection.updateOne(
             { _id: new ObjectId(id) },
@@ -385,10 +361,9 @@ async function run() {
       }
     });
 
-    // GET: Get user's liked artifacts (Protected)
     app.get("/api/artifacts/liked/:userEmail", verifyToken, async (req, res) => {
       try {
-        const userEmail = req.user.email; // From verified token
+        const userEmail = req.user.email;
         const likedArtifacts = await artifactsCollection
           .find({ likedBy: userEmail })
           .toArray();
@@ -403,10 +378,9 @@ async function run() {
       }
     });
 
-    // GET: Get artifacts by user email (Protected)
     app.get("/api/artifacts/user/:email", verifyToken, async (req, res) => {
       try {
-        const email = req.user.email; // From verified token
+        const email = req.user.email;
         
         const artifacts = await artifactsCollection
           .find({ adderEmail: email })
@@ -424,14 +398,12 @@ async function run() {
       }
     });
 
-    // PATCH: Update an artifact (Protected)
     app.patch("/api/artifacts/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
         const updates = req.body;
-        const userEmail = req.user.email; // From verified token
+        const userEmail = req.user.email;
 
-        // First check if the user owns this artifact
         const artifact = await artifactsCollection.findOne({
           _id: new ObjectId(id),
           adderEmail: userEmail
@@ -444,7 +416,6 @@ async function run() {
           });
         }
 
-        // Remove any fields that shouldn't be updated
         delete updates.likeCount;
         delete updates.likedBy;
         delete updates.adderName;
@@ -475,13 +446,11 @@ async function run() {
       }
     });
 
-    // DELETE: Delete an artifact (Protected)
     app.delete("/api/artifacts/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
-        const userEmail = req.user.email; // From verified token
+        const userEmail = req.user.email;
 
-        // First check if the user owns this artifact
         const artifact = await artifactsCollection.findOne({
           _id: new ObjectId(id),
           adderEmail: userEmail
@@ -527,7 +496,7 @@ async function run() {
 }
 
 run().catch(console.dir);
-
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
