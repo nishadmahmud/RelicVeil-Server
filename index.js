@@ -8,26 +8,18 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 try {
-  const serviceAccount = require('./firebase-admin.json');
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
   });
 } catch (error) {
   console.error('Error initializing Firebase Admin:', error);
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-    } catch (parseError) {
-      console.error('Error parsing service account from environment:', parseError);
-      throw new Error('Failed to initialize Firebase Admin SDK');
-    }
-  } else {
-    throw new Error('No Firebase credentials available');
-  }
+  throw new Error('Failed to initialize Firebase Admin SDK');
 }
+
 
 const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
